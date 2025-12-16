@@ -24,6 +24,9 @@ knitr::opts_chunk$set(echo = T, warning=FALSE, message=FALSE)
 The objective is to predict the presence of heart disease (target) using a variety of clinical and demographic features from the heart.csv dataset
 
 ```{r}
+# Set the working directory (NOTE: This line is user-specific and may need adjustment)
+setwd("C:/Users/celia/Downloads/Ciencia e Ingeniería de datos/Aprendizaje estadístico/Homework 2")
+
 # Load essential libraries
 library(tidyverse) # For data manipulation and visualization
 library(caret)     # For model training and evaluation (classification)
@@ -92,6 +95,7 @@ Observation: Patients with heart disease (red) generally achieved a higher maxim
 
 ```{r}
 # Target distribution by Chest Pain Type (cp)
+# Target distribution by Chest Pain Type (cp)
 heart_data_clean %>%
   ggplot(aes(x = cp, fill = target)) +
   geom_bar(position = "fill") + # position="fill" shows proportions
@@ -111,11 +115,21 @@ Split the data into training (70%) and testing (30%) sets, and apply scaling to 
 
 ```{r}
 # Set seed for reproducibility
-set.seed(42) 
+set.seed(123) 
 # Create data partition
 inTrain <- createDataPartition(y = heart_data_clean$target, p = .70, list = FALSE)
 training <- heart_data_clean[inTrain, ]
 testing  <- heart_data_clean[-inTrain, ]
+
+# --- CORRECTION: ENSURE FACTOR LEVELS ARE CONSISTENT ---
+# This fixes the Logistic Regression prediction error.
+categorical_predictors <- categorical_cols[categorical_cols != "target"]
+
+# Ensure factor levels in test set match training set levels.
+for(col in categorical_predictors){
+  testing[[col]] <- factor(testing[[col]], levels = levels(training[[col]]))
+}
+# --------------------------------------------------------
 
 # Preprocessing: Center and Scale numerical predictors in the training set
 preProcValues <- preProcess(training %>% select(-all_of(categorical_cols)), 
@@ -211,7 +225,7 @@ exang (Exercise Induced Angina 1): Having exercise-induced angina (exang=1) sign
 Logistic Regression Performance
 
 ```{r}
-# Predict probabilities on the test set
+# Predict probabilities on the test set (This should now work)
 logit_pred_probs <- predict(logit_model, testing_preproc, type = "response")
 logit_pred_class <- factor(ifelse(logit_pred_probs > 0.5, "Disease", "NoDisease"),
                            levels = c("NoDisease", "Disease"))
@@ -279,17 +293,39 @@ Conclusion: The optimal threshold (the one that maximizes the economic value) is
 
 # Feature Selection and Comparison of Predictor Sets
 
-## Fetaure Selection
+## Feature Selection
 
 Use the Variable Importance from the Random Forest model to select a reduced set of predictors.
 
-```{r}
+```{r feature_selection_corrected}
 # Get variable importance from Random Forest
 rf_var_imp <- varImp(rf_model, scale = FALSE)$importance
 
-# Sort and select the top 5 most important features
-top_features <- rownames(rf_var_imp)[order(rf_var_imp$Overall, decreasing = TRUE)][1:5]
-cat("Top 5 Features:", top_features, "\n")
+# Sort and select the top 10 most important features (selecting more helps ensure factor columns are captured)
+top_features_raw <- rownames(rf_var_imp)[order(rf_var_imp$Overall, decreasing = TRUE)][1:10]
+cat("Top 10 RAW Feature Names (may contain dummy variables):\n", top_features_raw, "\n")
+
+# --- CORRECTION: CLEAN FEATURE NAMES FOR GLM ---
+# Identify factor variables:
+factor_vars <- c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal")
+
+# Create a function to extract the base name (e.g., 'cp4' -> 'cp')
+clean_feature_name <- function(feature_name) {
+  for (base_name in factor_vars) {
+    if (startsWith(feature_name, base_name) && nchar(feature_name) > nchar(base_name)) {
+      return(base_name)
+    }
+  }
+  return(feature_name) # Return as is if it's not a dummy variable (e.g., 'thalach')
+}
+
+# Apply the cleaning function and select the top 5 unique features
+top_features_all <- sapply(top_features_raw, clean_feature_name)
+
+# Select the top 5 unique features
+top_features <- unique(top_features_all)[1:5]
+
+cat("Top 5 FINAL Feature Names for GLM:\n", top_features, "\n")
 ```
 
 ## Model Training with Reduced Predictor Set
@@ -297,10 +333,11 @@ cat("Top 5 Features:", top_features, "\n")
 Train a new Logistic Regression model using only the top 5 features.
 
 ```{r}
-# Create the formula for the reduced model
+# Create the formula for the reduced model (using the cleaned names)
 reduced_formula <- as.formula(paste("target ~", paste(top_features, collapse = " + ")))
+print(reduced_formula) # Check the formula to ensure it uses base names (e.g., 'cp', not 'cp4')
 
-# Train the reduced Logistic Regression model
+# Train the reduced Logistic Regression model (This will now work)
 reduced_logit_model <- glm(reduced_formula, 
                            data = training_preproc, 
                            family = "binomial")
