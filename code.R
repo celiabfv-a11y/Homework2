@@ -1,74 +1,84 @@
 ---
-title: "Statistical Learning - Homework 2: Supervised Learning (Heart Disease Prediction)"
+title: "Statistical Learning - Homework 2: Supervised Learning"
 author: "Malen Abarrategui Meire and Celia Benavente Fernández de Velasco"
 date: 'December 2025'
 output:
   html_document: 
+    css: my-theme.css
     theme: cerulean
     highlight: tango
-    toc: yes
-    toc_depth: 2
+    number_sections: no
+    toc: no
+    toc_depth: 1
   pdf_document:
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: yes
     toc: yes
-    toc_depth: 2
+    toc_depth: 1
 editor_options:
   chunk_output_type: console
 ---
 
-```{r global_options, include=T, echo = T}
-knitr::opts_chunk$set(echo = T, warning=FALSE, message=FALSE)
+```{r global_options, include=T, echo = F}
+knitr::opts_chunk$set(echo = T, warning = FALSE, message = FALSE)
 ```
 
 # Introduction
 
-The objective is to predict the presence of heart disease (target) using a variety of clinical and demographic features from the heart.csv dataset
+The objective is to predict the presence of heart disease (target) using a variety of clinical and demographic features from the heart.csv dataset. This analysis focuses on data preprocessing, model training (Random Forest for prediction, Logistic Regression for interpretation), and feature selection.
 
 ```{r}
-# Set the working directory (NOTE: This line is user-specific and may need adjustment)
-setwd("C:/Users/celia/Downloads/Ciencia e Ingeniería de datos/Aprendizaje estadístico/Homework 2")
+# Set the working directory 
+# This line is user-specific and may need adjustment
+# setwd()
 
-# Load essential libraries
-library(tidyverse) # For data manipulation and visualization
-library(caret)     # For model training and evaluation (classification)
-library(pROC)      # For ROC curves and AUC
-library(glmnet)    # For penalized regression (Lasso/Ridge)
-library(rpart)     # For Decision Trees
-library(randomForest) # For Random Forest
+# Load essential libraries for data science workflow
+library(tidyverse)    # Data manipulation and visualization
+library(caret)        # Model training, cross-validation, and evaluation
+library(pROC)         # ROC curves and AUC calculation
+library(glmnet)       # Penalized regression (Lasso/Ridge)
+library(rpart)        # Decision Trees
+library(randomForest) # Random Forest
 
 # Load the heart disease dataset
-heart_data <- read.csv("heart.csv", header = TRUE, sep = ",")
+heart_data = read.csv("heart.csv", header = TRUE, sep = ",")
 ```
 
 # Data Preprocessing and Visualization
+
 ## Feature Engineering and Conversion
 
-The target variable is target (1 = heart disease, 0 = no heart disease). Several other variables are categorical/ordinal and need to be converted to factor type for proper modeling.
+The target variable is target (1 = heart disease, 0 = no heart disease). Several other variables are categorical/ordinal and need to be converted to the factor type for proper modeling.
 
 ```{r}
-# Convert target and other categorical/ordinal variables to factors
-categorical_cols <- c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal", "target")
+# List of all categorical columns including the target
+categorical_cols = c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", 
+                     "thal", "target")
 
-heart_data_clean <- heart_data %>%
+# Convert listed columns to factors using the mutate and across functions from tidyverse
+heart_data_clean = heart_data %>%
   mutate(across(all_of(categorical_cols), as.factor))
 
-# Rename target levels for clarity:
-heart_data_clean$target <- factor(heart_data_clean$target, 
+# Rename target levels for clarity
+heart_data_clean$target = factor(heart_data_clean$target, 
                                   levels = c("0", "1"),
                                   labels = c("NoDisease", "Disease"))
 
-# Display structure and missing data check
+# Display structure and check for missing data
 glimpse(heart_data_clean)
 summary(heart_data_clean)
-# Check for missing values (NA) - data set appears clean
+# Check for missing values (NA)
 sum(is.na(heart_data_clean))
 ```
 
 ## Exploratory Data Analysis
 
-Visualization to understand the relationship between predictors and the target.
+Visualization to understand the relationship between key predictors and the target variable.
 
 ```{r}
-# Target distribution by Age
+# Target distribution by Age using density plots
 heart_data_clean %>%
   ggplot(aes(x = age, fill = target)) +
   geom_density(alpha = 0.6) +
@@ -78,7 +88,7 @@ heart_data_clean %>%
   theme_minimal()
 ```
 
-Observation: The density plot suggests a slight shift in distribution, with 'Disease' (red) showing higher density for younger ages, but it is not a clear separation.
+Observation: The density plot indicates that the distribution of patients with heart disease ('Disease') is slightly concentrated towards younger ages compared to those without ('NoDisease').
 
 ```{r}
 # Target distribution by Maximum Heart Rate Achieved (thalach)
@@ -91,10 +101,9 @@ heart_data_clean %>%
   theme_minimal()
 ```
 
-Observation: Patients with heart disease (red) generally achieved a higher maximum heart rate (thalach) than those without (blue), suggesting this is a strong predictor.
+Observation: Patients with heart disease generally achieved a higher maximum heart rate (thalach), suggesting this is a strong predictor differentiating the two groups.
 
 ```{r}
-# Target distribution by Chest Pain Type (cp)
 # Target distribution by Chest Pain Type (cp)
 heart_data_clean %>%
   ggplot(aes(x = cp, fill = target)) +
@@ -107,37 +116,37 @@ heart_data_clean %>%
   theme_minimal()
 ```
 
-Observation: Chest pain types 1, 2, and 3 have a much higher proportion of 'Disease' compared to type 4, which aligns with expected clinical interpretation, making cp a very strong predictor.
+Observation: Chest pain types 1, 2, and 3 show a much higher proportion of 'Disease' compared to type 4 (asymptomatic), confirming cp is a very strong predictor.
 
 ## Data Spliting and Preprocessing
 
-Split the data into training (70%) and testing (30%) sets, and apply scaling to numerical predictors.
+Split the data into training (70%) and testing (30%) sets, and apply scaling only to numerical predictors.
 
 ```{r}
 # Set seed for reproducibility
 set.seed(123) 
-# Create data partition
-inTrain <- createDataPartition(y = heart_data_clean$target, p = .70, list = FALSE)
-training <- heart_data_clean[inTrain, ]
-testing  <- heart_data_clean[-inTrain, ]
+# Create data partition index
+inTrain = createDataPartition(y = heart_data_clean$target, p = .70, list = FALSE)
+training = heart_data_clean[inTrain, ]
+testing  = heart_data_clean[-inTrain, ]
 
-# --- CORRECTION: ENSURE FACTOR LEVELS ARE CONSISTENT ---
-# This fixes the Logistic Regression prediction error.
-categorical_predictors <- categorical_cols[categorical_cols != "target"]
+# This prevents prediction errors when a factor level exists in the training set 
+# but is missing in the test set (or vice versa).
+categorical_predictors = categorical_cols[categorical_cols != "target"]
 
-# Ensure factor levels in test set match training set levels.
+# Loop through all categorical predictors (excluding the target)
+# and force the test set factors to use the same levels as the training set.
 for(col in categorical_predictors){
-  testing[[col]] <- factor(testing[[col]], levels = levels(training[[col]]))
+  testing[[col]] = factor(testing[[col]], levels = levels(training[[col]]))
 }
-# --------------------------------------------------------
 
 # Preprocessing: Center and Scale numerical predictors in the training set
-preProcValues <- preProcess(training %>% select(-all_of(categorical_cols)), 
+preProcValues = preProcess(training %>% select(-all_of(categorical_cols)), 
                             method = c("center", "scale"))
 
-# Apply preprocessing to both sets
-training_preproc <- predict(preProcValues, training)
-testing_preproc <- predict(preProcValues, testing)
+# Apply preprocessing (scaling numerics, keeping factors) to both sets
+training_preproc = predict(preProcValues, training)
+testing_preproc = predict(preProcValues, testing)
 ```
 
 # Classification Models
@@ -146,23 +155,23 @@ We will use two models: Random Forest (for prediction emphasis) and Logistic Reg
 
 ## Random Forest
 
-Random Forest (RF) is a non-linear, robust model suitable for achieving high predictive accuracy. We will tune its main hyperparameter, mtry (number of randomly selected predictors at each split).
+Random Forest (RF) is used for high predictive accuracy. We tune its main hyperparameter, mtry.
 
 ```{r}
-# Setup cross-validation control
-ctrl_rf <- trainControl(method = "cv", 
+# Setup cross-validation control (5-fold CV)
+ctrl_rf = trainControl(method = "cv", 
                         number = 5, 
                         classProbs = TRUE, 
                         summaryFunction = twoClassSummary)
 
 # Train the Random Forest model
-set.seed(42)
-rf_model <- train(target ~ ., 
+set.seed(123)
+rf_model = train(target ~ ., 
                   data = training_preproc, 
                   method = "rf", 
                   metric = "ROC", # Optimize for Area Under the ROC Curve
                   trControl = ctrl_rf,
-                  tuneLength = 5) # Try 5 different mtry values
+                  tuneLength = 5) # Test 5 different values for mtry
 
 print(rf_model)
 ```
@@ -170,31 +179,33 @@ print(rf_model)
 Random Forest Performance Evaluation
 
 ```{r}
-# Predict on the test set
-rf_pred_probs <- predict(rf_model, testing_preproc, type = "prob")[, "Disease"]
-rf_pred_class <- predict(rf_model, testing_preproc)
+# Predict probabilities on the test set for ROC/AUC
+rf_pred_probs = predict(rf_model, testing_preproc, type = "prob")[, "Disease"]
+# Predict class labels using the default threshold (0.5)
+rf_pred_class = predict(rf_model, testing_preproc)
 
 # Confusion Matrix and overall metrics
-rf_cm <- confusionMatrix(rf_pred_class, testing_preproc$target, positive = "Disease")
+rf_cm = confusionMatrix(rf_pred_class, testing_preproc$target, positive = "Disease")
 print(rf_cm)
 
 # ROC Curve and AUC
-rf_roc <- roc(testing_preproc$target, rf_pred_probs)
-auc_rf <- auc(rf_roc)
+rf_roc = roc(testing_preproc$target, rf_pred_probs)
+auc_rf = auc(rf_roc)
 cat(paste("Test Set AUC (Random Forest):", round(auc_rf, 4), "\n"))
 
+# Plot the ROC curve
 plot(rf_roc, main = "ROC Curve for Random Forest", col = "darkblue", lwd = 2)
 ```
 
 ## Logistic Regression
 
-Logistic Regression is highly interpretable, as the coefficients directly relate to the log-odds of the heart disease outcome.
+Logistic Regression provides clear interpretability through its coefficients (log-odds).
 
 ```{r}
-# Train Logistic Regression
-logit_model <- glm(target ~ ., 
+# Train Logistic Regression using the full set of preprocessed variables
+logit_model = glm(target ~ ., 
                    data = training_preproc, 
-                   family = "binomial")
+                   family = "binomial") # Specify binomial family for binary classification
 
 summary(logit_model)
 ```
@@ -203,75 +214,72 @@ Logistic Regression Interpretation
 
 ```{r}
 # Calculate odds ratios (exponentiate coefficients)
-odds_ratios <- exp(coef(logit_model))
+odds_ratios = exp(coef(logit_model))
 print("Odds Ratios:")
 print(round(odds_ratios, 3))
 ```
 
-Interpretation: 
-Positive coefficients (Odds Ratio > 1.0): An increase in the predictor value (or switching to that factor level) is associated with an increase in the odds of having heart disease.
+Interpretation:
 
+- Odds Ratio > 1.0: An increase in the predictor value or switching to that factor level (compared to the reference level) is associated with an increase in the odds of having heart disease. For example, Chest Pain Type 2 and 3 show very high odds ratios, confirming their strong positive link to the disease.
 
-cp (Chest Pain Type 2 & 3): The odds of having heart disease are significantly higher for patients with atypical angina (cp=2) and non-anginal pain (cp=3) compared to the reference (asymptomatic, cp=4/no pain, cp=1 is the reference depending on software, but given the output: cp2/cp3 are strong positive predictors).
+- Odds Ratio < 1.0: Associated with a decrease in the odds of having heart disease.
 
-thalach (Max Heart Rate): Higher max heart rate achieved is associated with increased odds of heart disease (positive coefficient in the summary).
-
-oldpeak (ST depression): Paradoxically, in this model, a higher oldpeak (a measure of exercise-induced ST depression) has a positive coefficient, but this should be interpreted cautiously due to correlation with other variables.
-
-Negative coefficients (Odds Ratio < 1.0): An increase in the predictor value is associated with a decrease in the odds of having heart disease.
-
-exang (Exercise Induced Angina 1): Having exercise-induced angina (exang=1) significantly reduces the odds of heart disease (if NoDisease is the reference, or in the binary target model, the odds ratio suggests less heart disease when angina is present, which is counter-intuitive for the 'target' variable. Self-correction: The target variable '1' is the presence of heart disease. The variable 'exang' (exercise induced angina) should increase the risk. Looking at the odds ratio, exang=1 significantly reduces the odds of 'Disease' (target=1) vs 'NoDisease' (target=0) compared to the reference (exang=0), which warrants further investigation or re-leveling of the factors, but the coefficients provide the direct interpretative insight.
+- Counter-intuitive Example (exang): The odds ratio for exang (exercise-induced angina) is often less than 1, suggesting it reduces the odds of heart disease (target=1). This is clinically unexpected and often warrants further investigation, as it may be due to confounding effects from other correlated variables (e.g., patients with exang=1 might be managed more aggressively or have less advanced disease overall in this specific dataset).
 
 Logistic Regression Performance
 
 ```{r}
-# Predict probabilities on the test set (This should now work)
-logit_pred_probs <- predict(logit_model, testing_preproc, type = "response")
-logit_pred_class <- factor(ifelse(logit_pred_probs > 0.5, "Disease", "NoDisease"),
+# Predict probabilities on the test set
+logit_pred_probs = predict(logit_model, testing_preproc, type = "response")
+# Convert probabilities to class labels using the default 0.5 threshold
+logit_pred_class = factor(ifelse(logit_pred_probs > 0.5, "Disease", "NoDisease"),
                            levels = c("NoDisease", "Disease"))
 
 # Confusion Matrix and overall metrics
-logit_cm <- confusionMatrix(logit_pred_class, testing_preproc$target, positive = "Disease")
+logit_cm = confusionMatrix(logit_pred_class, testing_preproc$target, positive = "Disease")
 print(logit_cm)
 
 # ROC Curve and AUC
-logit_roc <- roc(testing_preproc$target, logit_pred_probs)
-auc_logit <- auc(logit_roc)
+logit_roc = roc(testing_preproc$target, logit_pred_probs)
+auc_logit = auc(logit_roc)
 cat(paste("Test Set AUC (Logistic Regression):", round(auc_logit, 4), "\n"))
 ```
 
 ## Threshold Optimization
 
-Considering ideas from risk learning, we optimize the threshold for the Logistic Regression model based on a hypothetical cost matrix.
+We optimize the threshold for the Logistic Regression model based on a hypothetical cost matrix, an approach derived from risk learning.
 
-Assume a hypothetical Cost/Benefit Matrix (as an example):
+Assume a hypothetical Cost/Benefit Matrix (Profit/Loss per patient):
 
 ```{r}
-# Define the cost matrix (FN is a big loss, FP is a small loss, TP is a gain)
+# Define the profit/cost matrix:
+# TN: 0 (No action, correct) | FN: -5 (Missed case, high cost)
+# FP: -1 (Unnecessary test/treatment, low cost) | TP: 2 (Correct diagnosis/successful retention, gain)
 profit_unit = matrix(c(0, -5, # TN, FN
                        -1, 2), # FP, TP
                      nrow = 2, byrow = TRUE, 
                      dimnames = list(c("Predict NoDisease", "Predict Disease"),
                                      c("Reference NoDisease", "Reference Disease")))
 
-thresholds <- seq(0.05, 0.95, 0.05)
-profit_i <- matrix(NA, nrow = 1, ncol = length(thresholds), 
+thresholds = seq(0.05, 0.95, 0.05)
+profit_i = matrix(NA, nrow = 1, ncol = length(thresholds), 
                    dimnames = list("Profit", thresholds))
 
 # Calculate expected profit for each threshold on the test set
 for (j in 1:length(thresholds)) {
-  threshold <- thresholds[j]
+  threshold = thresholds[j]
   
   # Predict based on the new threshold
-  pred_class <- factor(ifelse(logit_pred_probs > threshold, "Disease", "NoDisease"),
+  pred_class = factor(ifelse(logit_pred_probs > threshold, "Disease", "NoDisease"),
                        levels = c("NoDisease", "Disease"))
   
   # Confusion Matrix
-  CM <- confusionMatrix(pred_class, testing_preproc$target, positive = "Disease")$table
+  CM = confusionMatrix(pred_class, testing_preproc$target, positive = "Disease")$table
   
-  # Calculate average profit per patient
-  profit_applicant <- sum(profit_unit * CM) / sum(CM)
-  profit_i[1, j] <- profit_applicant
+  # Calculate average profit per patient: total profit / total patients
+  profit_applicant = sum(profit_unit * CM) / sum(CM)
+  profit_i[1, j] = profit_applicant
 }
 
 # Visualize profit vs. threshold
@@ -282,63 +290,64 @@ barplot(profit_i,
         col = "skyblue")
 
 # Find the threshold that maximizes profit
-optimal_threshold <- thresholds[which.max(profit_i)]
-max_profit <- max(profit_i)
+optimal_threshold = thresholds[which.max(profit_i)]
+max_profit = max(profit_i)
 
 cat(paste("Optimal Threshold:", optimal_threshold, "\n"))
 cat(paste("Maximum Average Profit per Patient:", round(max_profit, 4), "\n"))
 ```
 
-Conclusion: The optimal threshold (the one that maximizes the economic value) is likely much lower than the default 0.5, reflecting the high cost of a False Negative (missing a case) in this hypothetical scenario.
+Conclusion: The optimal threshold is often lower than the default 0.5 when the cost of a False Negative (missed case) is high, as shown by this result, which prioritizes minimizing the highly penalized FN error.
 
 # Feature Selection and Comparison of Predictor Sets
 
 ## Feature Selection
 
-Use the Variable Importance from the Random Forest model to select a reduced set of predictors.
+We use the Variable Importance from the Random Forest model (a non-linear model) to select a reduced set of key predictors for a simpler Logistic Regression model.
 
 ```{r feature_selection_corrected}
 # Get variable importance from Random Forest
-rf_var_imp <- varImp(rf_model, scale = FALSE)$importance
+rf_var_imp = varImp(rf_model, scale = FALSE)$importance
 
 # Sort and select the top 10 most important features (selecting more helps ensure factor columns are captured)
-top_features_raw <- rownames(rf_var_imp)[order(rf_var_imp$Overall, decreasing = TRUE)][1:10]
+top_features_raw = rownames(rf_var_imp)[order(rf_var_imp$Overall, decreasing = TRUE)][1:10]
 cat("Top 10 RAW Feature Names (may contain dummy variables):\n", top_features_raw, "\n")
 
 # --- CORRECTION: CLEAN FEATURE NAMES FOR GLM ---
-# Identify factor variables:
-factor_vars <- c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal")
+# The goal is to get the base variable name (e.g., 'cp' from 'cp4') for glm
+factor_vars = c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal")
 
-# Create a function to extract the base name (e.g., 'cp4' -> 'cp')
-clean_feature_name <- function(feature_name) {
+# Function to strip dummy variable suffixes, keeping only the base factor name
+clean_feature_name = function(feature_name) {
   for (base_name in factor_vars) {
+    # Check if the feature name starts with a factor name and has a suffix
     if (startsWith(feature_name, base_name) && nchar(feature_name) > nchar(base_name)) {
       return(base_name)
     }
   }
-  return(feature_name) # Return as is if it's not a dummy variable (e.g., 'thalach')
+  return(feature_name) # Returns numerical or already clean categorical variables
 }
 
-# Apply the cleaning function and select the top 5 unique features
-top_features_all <- sapply(top_features_raw, clean_feature_name)
+# Apply the cleaning function to the raw list
+top_features_all = sapply(top_features_raw, clean_feature_name)
 
-# Select the top 5 unique features
-top_features <- unique(top_features_all)[1:5]
+# Select the top 5 unique features (to avoid duplicating factor names)
+top_features = unique(top_features_all)[1:5]
 
 cat("Top 5 FINAL Feature Names for GLM:\n", top_features, "\n")
 ```
 
 ## Model Training with Reduced Predictor Set
 
-Train a new Logistic Regression model using only the top 5 features.
+Train a new Logistic Regression model using only the top 5 selected features.
 
 ```{r}
-# Create the formula for the reduced model (using the cleaned names)
-reduced_formula <- as.formula(paste("target ~", paste(top_features, collapse = " + ")))
-print(reduced_formula) # Check the formula to ensure it uses base names (e.g., 'cp', not 'cp4')
+# Create the formula for the reduced model (e.g., target ~ thal + cp + ca + thalach + oldpeak)
+reduced_formula = as.formula(paste("target ~", paste(top_features, collapse = " + ")))
+print(reduced_formula)
 
-# Train the reduced Logistic Regression model (This will now work)
-reduced_logit_model <- glm(reduced_formula, 
+# Train the reduced Logistic Regression model
+reduced_logit_model = glm(reduced_formula, 
                            data = training_preproc, 
                            family = "binomial")
 summary(reduced_logit_model)
@@ -350,16 +359,16 @@ Compare the performance (AUC, Accuracy) of the full Logistic Regression model an
 
 ```{r}
 # Predictions from reduced model
-reduced_logit_pred_probs <- predict(reduced_logit_model, testing_preproc, type = "response")
-reduced_logit_pred_class <- factor(ifelse(reduced_logit_pred_probs > 0.5, "Disease", "NoDisease"),
+reduced_logit_pred_probs = predict(reduced_logit_model, testing_preproc, type = "response")
+reduced_logit_pred_class = factor(ifelse(reduced_logit_pred_probs > 0.5, "Disease", "NoDisease"),
                                    levels = c("NoDisease", "Disease"))
 
 # AUC for reduced model
-reduced_logit_roc <- roc(testing_preproc$target, reduced_logit_pred_probs)
-auc_reduced_logit <- auc(reduced_logit_roc)
+reduced_logit_roc = roc(testing_preproc$target, reduced_logit_pred_probs)
+auc_reduced_logit = auc(reduced_logit_roc)
 
-# Compare Results
-results_comparison <- data.frame(
+# Compare Results in a single data frame
+results_comparison = data.frame(
   Model = c("Full Logit Model", "Reduced Logit Model", "Random Forest (Best)"),
   AUC = c(auc_logit, auc_reduced_logit, auc_rf),
   Accuracy_Default_0.5 = c(confusionMatrix(logit_pred_class, testing_preproc$target, positive = "Disease")$overall['Accuracy'],
@@ -369,7 +378,7 @@ results_comparison <- data.frame(
 
 print(results_comparison)
 
-# Visualize ROC curves
+# Visualize ROC curves for comparison
 plot(rf_roc, col = "darkblue", lwd = 2, main = "Model Comparison: ROC Curves")
 plot(logit_roc, col = "red", lwd = 2, add = TRUE)
 plot(reduced_logit_roc, col = "green4", lwd = 2, add = TRUE)
@@ -383,4 +392,5 @@ legend("bottomright",
 
 # Conclusion
 
-The Random Forest model generally provides the highest predictive accuracy (best AUC/Accuracy) due to its ability to capture non-linear relationships. However, the Logistic Regression model provides clear and immediate interpretability via its odds ratios, confirming that features like cp, thalach, and thal are the most influential predictors of heart disease. The reduced predictor set performs similarly to the full set, suggesting that the top features capture most of the signal in the data, which is valuable for building a simpler, more robust final model.
+The Random Forest model generally provides the highest predictive accuracy (best AUC/Accuracy) due to its ability to capture non-linear relationships. However, the Logistic Regression model provides clear and immediate interpretability via its odds ratios, confirming that features like cp, thalach, and thal are the most influential predictors of heart disease. The reduced Logistic Regression model, built on the top 5 features selected by Random Forest, performs very similarly to the full Logistic Regression model. This suggests that the signal in the data is captured by a handful of strong predictors, which is valuable for building a simpler, more robust final model that requires less data collection and processing.
+
