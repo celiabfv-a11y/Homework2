@@ -25,6 +25,10 @@ editor_options:
 knitr::opts_chunk$set(echo = T, warning = FALSE, message = FALSE)
 ```
 
+```{r, include=FALSE}
+rm(list = ls())
+```
+
 # Introduction
 
 The objective is to predict the presence of heart disease (target) using a variety of clinical and demographic features from the heart.csv dataset. This analysis focuses on data preprocessing, model training (Random Forest for prediction, Logistic Regression for interpretation), and feature selection.
@@ -32,18 +36,21 @@ The objective is to predict the presence of heart disease (target) using a varie
 ```{r}
 # Set the working directory 
 # This line is user-specific and may need adjustment
-# setwd()
+setwd()
 
-# Load essential libraries for data science workflow
-library(tidyverse)    # Data manipulation and visualization
-library(caret)        # Model training, cross-validation, and evaluation
-library(pROC)         # ROC curves and AUC calculation
-library(glmnet)       # Penalized regression (Lasso/Ridge)
-library(rpart)        # Decision Trees
-library(randomForest) # Random Forest
+# Load required libraries
+library(tidyverse)
+library(caret)
+library(pROC)
+library(glmnet)
+library(rpart)
+library(randomForest)
 
-# Load the heart disease dataset
-heart_data = read.csv("heart.csv", header = TRUE, sep = ",")
+# Load the dataset
+data = read.csv("heart.csv", header = TRUE, sep = ",")
+
+# Fix seed to ensure reproducibility
+set.seed(123)
 ```
 
 # Data Preprocessing and Visualization
@@ -53,24 +60,25 @@ heart_data = read.csv("heart.csv", header = TRUE, sep = ",")
 The target variable is target (1 = heart disease, 0 = no heart disease). Several other variables are categorical/ordinal and need to be converted to the factor type for proper modeling.
 
 ```{r}
+# Display structure and check for missing data
+glimpse(data)
+summary(data)
+# Check for missing values (NA)
+sum(is.na(data))
+barplot(colMeans(is.na(data)), las=2)
+
 # List of all categorical columns including the target
 categorical_cols = c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", 
                      "thal", "target")
 
 # Convert listed columns to factors using the mutate and across functions from tidyverse
-heart_data_clean = heart_data %>%
+data = data %>%
   mutate(across(all_of(categorical_cols), as.factor))
 
 # Rename target levels for clarity
-heart_data_clean$target = factor(heart_data_clean$target, 
+data$target = factor(data$target, 
                                   levels = c("0", "1"),
                                   labels = c("NoDisease", "Disease"))
-
-# Display structure and check for missing data
-glimpse(heart_data_clean)
-summary(heart_data_clean)
-# Check for missing values (NA)
-sum(is.na(heart_data_clean))
 ```
 
 ## Exploratory Data Analysis
@@ -79,8 +87,7 @@ Visualization to understand the relationship between key predictors and the targ
 
 ```{r}
 # Target distribution by Age using density plots
-heart_data_clean %>%
-  ggplot(aes(x = age, fill = target)) +
+ggplot(data, aes(x = age, fill = target)) + 
   geom_density(alpha = 0.6) +
   labs(title = "Heart Disease Distribution by Age",
        x = "Age (years)",
@@ -92,8 +99,7 @@ Observation: The density plot indicates that the distribution of patients with h
 
 ```{r}
 # Target distribution by Maximum Heart Rate Achieved (thalach)
-heart_data_clean %>%
-  ggplot(aes(x = thalach, fill = target)) +
+ggplot(data, aes(x = thalach, fill = target)) +
   geom_density(alpha = 0.6) +
   labs(title = "Heart Disease Distribution by Max Heart Rate",
        x = "Maximum Heart Rate (thalach)",
@@ -105,14 +111,13 @@ Observation: Patients with heart disease generally achieved a higher maximum hea
 
 ```{r}
 # Target distribution by Chest Pain Type (cp)
-heart_data_clean %>%
-  ggplot(aes(x = cp, fill = target)) +
-  geom_bar(position = "fill") + # position="fill" shows proportions
+ggplot(data, aes(x = cp, fill = target)) +
+  geom_bar(position = "fill") + 
   labs(title = "Heart Disease Proportion by Chest Pain Type (cp)",
        x = "Chest Pain Type",
        y = "Proportion",
        fill = "Heart Disease") +
-  scale_fill_manual(values = c("NoDisease" = "blue", "Disease" = "red")) +
+  scale_fill_manual(values = c("NoDisease" = "lightblue", "Disease" = "pink")) +
   theme_minimal()
 ```
 
@@ -123,30 +128,16 @@ Observation: Chest pain types 1, 2, and 3 show a much higher proportion of 'Dise
 Split the data into training (70%) and testing (30%) sets, and apply scaling only to numerical predictors.
 
 ```{r}
-# Set seed for reproducibility
-set.seed(123) 
 # Create data partition index
-inTrain = createDataPartition(y = heart_data_clean$target, p = .70, list = FALSE)
-training = heart_data_clean[inTrain, ]
-testing  = heart_data_clean[-inTrain, ]
+inTrain = createDataPartition(y = data$target, p = 0.70, list = FALSE)
 
-# This prevents prediction errors when a factor level exists in the training set 
-# but is missing in the test set (or vice versa).
-categorical_predictors = categorical_cols[categorical_cols != "target"]
+# Split the data
+training = data[inTrain, ]
+testing  = data[-inTrain, ]
 
-# Loop through all categorical predictors (excluding the target)
-# and force the test set factors to use the same levels as the training set.
-for(col in categorical_predictors){
-  testing[[col]] = factor(testing[[col]], levels = levels(training[[col]]))
-}
-
-# Preprocessing: Center and Scale numerical predictors in the training set
-preProcValues = preProcess(training %>% select(-all_of(categorical_cols)), 
-                            method = c("center", "scale"))
-
-# Apply preprocessing (scaling numerics, keeping factors) to both sets
-training_preproc = predict(preProcValues, training)
-testing_preproc = predict(preProcValues, testing)
+# Display 
+prop.table(table(training$target))
+prop.table(table(testing$target))
 ```
 
 # Classification Models
@@ -165,9 +156,8 @@ ctrl_rf = trainControl(method = "cv",
                         summaryFunction = twoClassSummary)
 
 # Train the Random Forest model
-set.seed(123)
 rf_model = train(target ~ ., 
-                  data = training_preproc, 
+                  data = training, 
                   method = "rf", 
                   metric = "ROC", # Optimize for Area Under the ROC Curve
                   trControl = ctrl_rf,
@@ -180,16 +170,16 @@ Random Forest Performance Evaluation
 
 ```{r}
 # Predict probabilities on the test set for ROC/AUC
-rf_pred_probs = predict(rf_model, testing_preproc, type = "prob")[, "Disease"]
+rf_pred_probs = predict(rf_model, testing, type = "prob")[, "Disease"]
 # Predict class labels using the default threshold (0.5)
-rf_pred_class = predict(rf_model, testing_preproc)
+rf_pred_class = predict(rf_model, testing)
 
 # Confusion Matrix and overall metrics
-rf_cm = confusionMatrix(rf_pred_class, testing_preproc$target, positive = "Disease")
+rf_cm = confusionMatrix(rf_pred_class, testing$target, positive = "Disease")
 print(rf_cm)
 
 # ROC Curve and AUC
-rf_roc = roc(testing_preproc$target, rf_pred_probs)
+rf_roc = roc(testing$target, rf_pred_probs)
 auc_rf = auc(rf_roc)
 cat(paste("Test Set AUC (Random Forest):", round(auc_rf, 4), "\n"))
 
@@ -204,7 +194,7 @@ Logistic Regression provides clear interpretability through its coefficients (lo
 ```{r}
 # Train Logistic Regression using the full set of preprocessed variables
 logit_model = glm(target ~ ., 
-                   data = training_preproc, 
+                   data = training, 
                    family = "binomial") # Specify binomial family for binary classification
 
 summary(logit_model)
@@ -231,17 +221,17 @@ Logistic Regression Performance
 
 ```{r}
 # Predict probabilities on the test set
-logit_pred_probs = predict(logit_model, testing_preproc, type = "response")
+logit_pred_probs = predict(logit_model, testing, type = "response")
 # Convert probabilities to class labels using the default 0.5 threshold
 logit_pred_class = factor(ifelse(logit_pred_probs > 0.5, "Disease", "NoDisease"),
                            levels = c("NoDisease", "Disease"))
 
 # Confusion Matrix and overall metrics
-logit_cm = confusionMatrix(logit_pred_class, testing_preproc$target, positive = "Disease")
+logit_cm = confusionMatrix(logit_pred_class, testing$target, positive = "Disease")
 print(logit_cm)
 
 # ROC Curve and AUC
-logit_roc = roc(testing_preproc$target, logit_pred_probs)
+logit_roc = roc(testing$target, logit_pred_probs)
 auc_logit = auc(logit_roc)
 cat(paste("Test Set AUC (Logistic Regression):", round(auc_logit, 4), "\n"))
 ```
@@ -275,7 +265,7 @@ for (j in 1:length(thresholds)) {
                        levels = c("NoDisease", "Disease"))
   
   # Confusion Matrix
-  CM = confusionMatrix(pred_class, testing_preproc$target, positive = "Disease")$table
+  CM = confusionMatrix(pred_class, testing$target, positive = "Disease")$table
   
   # Calculate average profit per patient: total profit / total patients
   profit_applicant = sum(profit_unit * CM) / sum(CM)
@@ -313,7 +303,6 @@ rf_var_imp = varImp(rf_model, scale = FALSE)$importance
 top_features_raw = rownames(rf_var_imp)[order(rf_var_imp$Overall, decreasing = TRUE)][1:10]
 cat("Top 10 RAW Feature Names (may contain dummy variables):\n", top_features_raw, "\n")
 
-# --- CORRECTION: CLEAN FEATURE NAMES FOR GLM ---
 # The goal is to get the base variable name (e.g., 'cp' from 'cp4') for glm
 factor_vars = c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal")
 
@@ -348,7 +337,7 @@ print(reduced_formula)
 
 # Train the reduced Logistic Regression model
 reduced_logit_model = glm(reduced_formula, 
-                           data = training_preproc, 
+                           data = training, 
                            family = "binomial")
 summary(reduced_logit_model)
 ```
@@ -359,20 +348,20 @@ Compare the performance (AUC, Accuracy) of the full Logistic Regression model an
 
 ```{r}
 # Predictions from reduced model
-reduced_logit_pred_probs = predict(reduced_logit_model, testing_preproc, type = "response")
+reduced_logit_pred_probs = predict(reduced_logit_model, testing, type = "response")
 reduced_logit_pred_class = factor(ifelse(reduced_logit_pred_probs > 0.5, "Disease", "NoDisease"),
                                    levels = c("NoDisease", "Disease"))
 
 # AUC for reduced model
-reduced_logit_roc = roc(testing_preproc$target, reduced_logit_pred_probs)
+reduced_logit_roc = roc(testing$target, reduced_logit_pred_probs)
 auc_reduced_logit = auc(reduced_logit_roc)
 
 # Compare Results in a single data frame
 results_comparison = data.frame(
   Model = c("Full Logit Model", "Reduced Logit Model", "Random Forest (Best)"),
   AUC = c(auc_logit, auc_reduced_logit, auc_rf),
-  Accuracy_Default_0.5 = c(confusionMatrix(logit_pred_class, testing_preproc$target, positive = "Disease")$overall['Accuracy'],
-                           confusionMatrix(reduced_logit_pred_class, testing_preproc$target, positive = "Disease")$overall['Accuracy'],
+  Accuracy_Default_0.5 = c(confusionMatrix(logit_pred_class, testing$target, positive = "Disease")$overall['Accuracy'],
+                           confusionMatrix(reduced_logit_pred_class, testing$target, positive = "Disease")$overall['Accuracy'],
                            rf_cm$overall['Accuracy'])
 )
 
