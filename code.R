@@ -36,7 +36,8 @@ The objective is to predict the presence of heart disease (target) using a varie
 ```{r}
 # Set the working directory 
 # This line is user-specific and may need adjustment
-setwd()
+# setwd()
+setwd("C:/Users/celia/Downloads/Ciencia e Ingeniería de datos/Aprendizaje estadístico/Homework 2")
 
 # Load required libraries
 library(tidyverse)
