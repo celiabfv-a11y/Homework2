@@ -146,7 +146,7 @@ prop.table(table(testing$target))
 
 # Classification Models
 
-We will use four models: Random Forest, Linear Discriminant Analysis (LDA), Decision Trees and Logistic Regression.
+In this section, we implement four distinct classification algorithms to evaluate their ability to predict heart disease. These models represent different analytical paradigms: Random Forest provides high-dimensional ensemble learning for maximum accuracy; Linear Discriminant Analysis (LDA) offers a classic probabilistic approach to class separation; Decision Trees generate intuitive, rule-based diagnostic paths; and Logistic Regression serves as our primary tool for clinical interpretability via odds ratios. By comparing these diverse methods, we aim to find a balance between high predictive performance and transparent medical insights.
 
 ## Random Forest
 
@@ -212,7 +212,7 @@ lda_test_results = predict(lda.model, newdata = testing)
 lda_pred_probs = lda_test_results$posterior
 head(lda_pred_probs)
 
-# Class prediction based on highest posterior porbability
+# Class prediction based on highest posterior probability
 lda_pred_class = lda_test_results$class
 head(lda_pred_class)
 
@@ -291,7 +291,7 @@ summary(logit_model)
 Logistic Regression Interpretation
 
 ```{r}
-# Calculate odds ratios (exponentiate coefficients)
+# Calculate odds ratios (exponentiate coefficients) to interpret feature effects
 odds_ratios = exp(coef(logit_model))
 print("Odds Ratios:")
 print(round(odds_ratios, 3))
@@ -350,7 +350,7 @@ profit_i = matrix(NA, nrow = 1, ncol = length(thresholds),
 for (j in 1:length(thresholds)) {
   threshold = thresholds[j]
   
-  # Predict based on the new threshold
+  # Predict based on the candidate threshold
   pred_class = factor(ifelse(logit_pred_probs > threshold, "Disease", "NoDisease"),
                        levels = c("NoDisease", "Disease"))
   
@@ -385,32 +385,30 @@ Conclusion: The optimal threshold is often lower than the default 0.5 when the c
 
 We use the Variable Importance from the Random Forest model (a non-linear model) to select a reduced set of key predictors for a simpler Logistic Regression model.
 
-```{r feature_selection_corrected}
+```{r}
 # Get variable importance from Random Forest
 rf_var_imp = varImp(rf_model, scale = FALSE)$importance
 
-# Sort and select the top 10 most important features (selecting more helps ensure factor columns are captured)
+# Sort and select the top 10 most important features (raw names)
 top_features_raw = rownames(rf_var_imp)[order(rf_var_imp$Overall, decreasing = TRUE)][1:10]
 cat("Top 10 RAW Feature Names (may contain dummy variables):\n", top_features_raw, "\n")
 
-# The goal is to get the base variable name (e.g., 'cp' from 'cp4') for glm
+# Base category variable names
 factor_vars = c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal")
 
-# Function to strip dummy variable suffixes, keeping only the base factor name
+# Function to strip dummy suffixes (e.g., 'cp2' -> cp)
+# This ensures the base factor variable name is used in the GLM formula
 clean_feature_name = function(feature_name) {
   for (base_name in factor_vars) {
-    # Check if the feature name starts with a factor name and has a suffix
     if (startsWith(feature_name, base_name) && nchar(feature_name) > nchar(base_name)) {
       return(base_name)
     }
   }
-  return(feature_name) # Returns numerical or already clean categorical variables
+  return(feature_name) # Returns numeric variables as-is
 }
 
-# Apply the cleaning function to the raw list
+# Clean the raw feature names and select top 5 unique variables
 top_features_all = sapply(top_features_raw, clean_feature_name)
-
-# Select the top 5 unique features (to avoid duplicating factor names)
 top_features = unique(top_features_all)[1:5]
 
 cat("Top 5 FINAL Feature Names for GLM:\n", top_features, "\n")
@@ -421,7 +419,7 @@ cat("Top 5 FINAL Feature Names for GLM:\n", top_features, "\n")
 Train a new Logistic Regression model using only the top 5 selected features.
 
 ```{r}
-# Create the formula for the reduced model (e.g., target ~ thal + cp + ca + thalach + oldpeak)
+# Dynamically create the formula for the reduced model
 reduced_formula = as.formula(paste("target ~", paste(top_features, collapse = " + ")))
 print(reduced_formula)
 
