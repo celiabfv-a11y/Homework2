@@ -66,19 +66,20 @@ The target variable is target (1 = heart disease, 0 = no heart disease). Several
 # Display structure and check for missing data
 glimpse(data)
 summary(data)
-# Check for missing values (NA)
-sum(is.na(data))
-barplot(colMeans(is.na(data)), las=2)
 
-# List of all categorical columns including the target
+# Check for missing values (NA) and visualize distribution
+sum(is.na(data))
+barplot(colMeans(is.na(data)), las = 2)
+
+# List all categorical columns including the target
 categorical_cols = c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", 
                      "thal", "target")
 
-# Convert listed columns to factors using the mutate and across functions from tidyverse
+# Convert listed columns to factors using mutate and across
 data = data %>%
   mutate(across(all_of(categorical_cols), as.factor))
 
-# Rename target levels for clarity
+# Rename target levels for clarity in confusion matrices and ROC curves
 data$target = factor(data$target, 
                                   levels = c("0", "1"),
                                   labels = c("NoDisease", "Disease"))
@@ -138,7 +139,7 @@ inTrain = createDataPartition(y = data$target, p = 0.70, list = FALSE)
 training = data[inTrain, ]
 testing  = data[-inTrain, ]
 
-# Display 
+# Verify class balance in training and testing sets to ensure consistency
 prop.table(table(training$target))
 prop.table(table(testing$target))
 ```
@@ -158,14 +159,13 @@ params = trainControl(method = "cv",
                         classProbs = TRUE, 
                         summaryFunction = twoClassSummary)
 
-# Train the Random Forest model
+# Train the Random Forest model using ROC as the optimization metric
 rf_model = train(target ~ ., 
                   data = training, 
                   method = "rf", 
                   metric = "ROC", # Optimize for Area Under the ROC Curve
                   trControl = params,
                   tuneLength = 5) # Test 5 different values for mtry
-
 print(rf_model)
 ```
 
@@ -195,12 +195,11 @@ plot(rf_roc, main = "ROC Curve for Random Forest", col = "darkblue", lwd = 2)
 Linear Discriminant Analysis (LDA) is a classical Bayesian-based classification method that seeks to find a linear combination of features that best separates two or more classes. Its goal in our project is predictive as well.
 
 ```{r}
+# Fit the Linear Discriminant Analysis model
 lda.model = lda(target ~., data = training)
 
-# View he model (prior probabilities, coefficients)
+# View the model parameters (Prior probabilities and group coefficients)
 print(lda.model)
-
-# The most important variables in our coefficients seem to be with this model cp and ca
 ```
 
 LDA Performance Evaluation
@@ -209,10 +208,11 @@ LDA Performance Evaluation
 # Predictions on the test set
 lda_test_results = predict(lda.model, newdata = testing)
 
+# Posterior probabilities for each class
 lda_pred_probs = lda_test_results$posterior
 head(lda_pred_probs)
 
-# Class prediction
+# Class prediction based on highest posterior porbability
 lda_pred_class = lda_test_results$class
 head(lda_pred_class)
 
@@ -220,8 +220,7 @@ head(lda_pred_class)
 lda_cm = confusionMatrix(lda_pred_class, testing$target, positive = "Disease")
 print(lda_cm)
 
-# ROC curve and AUC
-# We use the column disease of the posterior probabilities
+# ROC curve and AUC (using the 'Disease' column of probabilities)
 lda_roc = roc(testing$target, lda_pred_probs[, "Disease"])
 auc_lda = auc(lda_roc)
 cat(paste("Test Set AUC (LDA):", round(auc_lda, 4), "\n"))
@@ -235,21 +234,23 @@ plot(lda_roc, main = "ROC Curve for LDA", col = "red", lwd = 2)
 A Decision Tree is a non-parametric supervised learning algorithm that partitions the data into smaller, homogeneous subsets through a series of hierarchical decision rules.
 
 ```{r}
-# Hyper-parameter
-params = rpart.control(minsplit = 20, # Minimum of observations per partition
-                       maxdepth = 4, # Maximun deepness
-                       cp = 0.005) # Complexity parameter
+# Set hyperparameters for tree pruning and growth control
+params = rpart.control(minsplit = 20, # Minimum observations requieres to attempt a split
+                       maxdepth = 4, # Maximum depth of the tree
+                       cp = 0.005) # Complexity parameter for pruning
 
+# Training the rpart decision tree model
 model = rpart(target ~., data = training, method = "class", control = params)
 
+# Examine variable importance and split logic
 summary(model)
-# The most important variables are cp, thalach and ca
 ```
 
 Decision Tree Visualization
 
 ```{r}
-rpart.plot(model, type = 4, extra = 101, fallen.leaves = TRUE, main = "Factors of heart disease")
+# Visualize the hierarchical rules
+rpart.plot(model, type = 4, extra = 101, fallen.leaves = TRUE, main = "Decision Tree for Heart Disease Factors")
 ```
 
 Evaluation of Decision Tree
@@ -258,20 +259,20 @@ Evaluation of Decision Tree
 # Prediction of probabilities in the test set
 dt_pred_probs = predict(model, testing, type = "prob")[, "Disease"]
 
-# Prediction of classes
+# Prediction of classes using standard 0.5 threshold
 dt_pred_class = factor(ifelse(dt_pred_probs > 0.5, "Disease", "NoDisease"), levels = levels(training$target))
 
 # Confusion matrix
 dt_cm = confusionMatrix(dt_pred_class, testing$target, positive = "Disease")
 print(dt_cm)
 
-# ROC curve
+# ROC curve and AUC calculation
 dt_roc = roc(testing$target, dt_pred_probs)
 auc_dt = auc(dt_roc)
 cat(paste("Test Set AUC (Decision Tree - rpart):", round(auc_dt, 4), "\n"))
 
 # Plot the ROC curve
-plot(dt_roc, main = "ROC Curve for Desicion Trees", col = "purple", lwd = 2)
+plot(dt_roc, main = "ROC Curve for Decision Trees", col = "purple", lwd = 2)
 ```
 
 ## Logistic Regression
@@ -333,9 +334,8 @@ We optimize the threshold for the Logistic Regression model based on a hypotheti
 Assume a hypothetical Cost/Benefit Matrix (Profit/Loss per patient):
 
 ```{r}
-# Define the profit/cost matrix:
-# TN: 0 (No action, correct) | FN: -5 (Missed case, high cost)
-# FP: -1 (Unnecessary test/treatment, low cost) | TP: 2 (Correct diagnosis/successful retention, gain)
+# Define a cost-benefit matrix where False Negative are heavily penalized
+# Logic: Missing a heart disease case (FN) is 5x more costly than a false positive
 profit_unit = matrix(c(0, -5, # TN, FN
                        -1, 2), # FP, TP
                      nrow = 2, byrow = TRUE, 
