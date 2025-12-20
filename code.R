@@ -37,7 +37,6 @@ The objective is to predict the presence of heart disease (target) using a varie
 # Set the working directory 
 # This line is user-specific and may need adjustment
 # setwd()
-setwd("C:/Users/celia/Downloads/Ciencia e Ingeniería de datos/Aprendizaje estadístico/Homework 2")
 
 # Load required libraries
 library(tidyverse)
@@ -462,11 +461,11 @@ plot(dt_roc, col = "purple", lwd = 2, add = TRUE)
 plot(logit_roc, col = "orange", lwd = 2, add = TRUE)
 plot(reduced_logit_roc, col = "green4", lwd = 2, add = TRUE)
 legend("bottomright", 
-       legend = c(paste("Random Forest (AUC:", round(auc_rf, 3), ")"),
-                  paste("LDA (AUC:", round(auc_lda, 3), ")"),
-                  paste("Decision Tree (AUC:", round(auc_dt, 3), ")"),
-                  paste("Full Logit (AUC:", round(auc_logit, 3), ")"),
-                  paste("Reduced Logit (AUC:", round(auc_reduced_logit, 3), ")")),
+       legend = c(paste("Random Forest (AUC:", round(auc_rf, 5), ")"),
+                  paste("LDA (AUC:", round(auc_lda, 5), ")"),
+                  paste("Decision Tree (AUC:", round(auc_dt, 5), ")"),
+                  paste("Full Logit (AUC:", round(auc_logit, 5), ")"),
+                  paste("Reduced Logit (AUC:", round(auc_reduced_logit, 5), ")")),
        col = c("darkblue", "red", "purple", "orange", "green4"), 
        lwd = 2)
 ```
