@@ -141,6 +141,11 @@ testing  = data[-inTrain, ]
 # Verify class balance in training and testing sets to ensure consistency
 prop.table(table(training$target))
 prop.table(table(testing$target))
+
+# Scaling numerical predictors
+preProcValues = preProcess(training, method = c("center", "scale"))
+training = predict(preProcValues, training)
+testing = predict(preProcValues, testing)
 ```
 
 # Classification Models
